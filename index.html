@@ -3,6 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="Meus Treinos">
@@ -678,6 +679,18 @@ var supabase = window.__SB;
 console.log('✅ Supabase pronto:', !!supabase);
 </script>
 <script>
+
+// ── SECURITY: sanitize user content to prevent XSS ───────────────
+function sanitize(str) {
+  if (!str) return '';
+  return String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;');
+}
+
 // ── STATE ─────────────────────────────────────────────────────────
 let plans       = [];
 let lastWeights = {}; // { "exerciseName": "weightString" }
@@ -710,7 +723,8 @@ async function loadLastWeights() {
     .select('exercise_name, weight, completed_at')
     .eq('user_id', currentUser.id)
     .neq('weight', '')
-    .order('completed_at', { ascending: false });
+    .order('completed_at', { ascending: false })
+    .limit(200);
 
   if (error) { console.error('loadLastWeights:', error); return; }
 
@@ -849,12 +863,15 @@ async function initAuth() {
   }
 
   supabase.auth.onAuthStateChange(async (event, session) => {
-    if (event === 'SIGNED_IN' && session?.user) {
+    // TOKEN_REFRESHED fires often — ignore it to avoid reloading data
+    if (event === 'TOKEN_REFRESHED') return;
+    if (event === 'SIGNED_IN' && session?.user && !currentUser) {
       currentUser = session.user;
       await onAuthSuccess();
     } else if (event === 'SIGNED_OUT') {
       currentUser = null;
       plans = [];
+      lastWeights = {};
       showAuthScreen();
     }
   });
@@ -1070,7 +1087,7 @@ function renderWorkout() {
     return `
       <div class="card ${allDone ? '' : 'card-accent'}" style="${allDone ? 'opacity:.5' : ''}">
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
-          <div style="font-size:15px;font-weight:700">${ex.name}</div>
+          <div style="font-size:15px;font-weight:700">${sanitize(ex.name)}</div>
           ${allDone
             ? `<span class="badge" style="background:var(--green-bg);color:var(--green)">Concluído</span>`
             : `<span style="font-size:12px;color:var(--text2)">${ex.reps} reps</span>`}
@@ -1250,7 +1267,7 @@ function renderHome() {
   document.getElementById('plans-list').innerHTML = filtered.length
     ? filtered.map(p => `
         <div class="plan-card" onclick="openPlan('${p.id}')">
-          <div class="plan-name">${p.name}</div>
+          <div class="plan-name">${sanitize(p.name)}</div>
           <div>${p.muscles.map(m => muscleBadge(m)).join('')}</div>
           <div class="plan-meta">
             <span class="plan-sets">${p.exercises.length} exercícios · ${p.exercises.reduce((a, e) => a + e.sets, 0)} sets</span>
@@ -1273,7 +1290,7 @@ function setFilter(m) { filterMuscle = m; renderHome(); }
 function openPlan(id) {
   currentPlanId = id;
   const plan = plans.find(p => p.id === id);
-  document.getElementById('plan-detail-name').textContent  = plan.name;
+  document.getElementById('plan-detail-name').textContent  = plan.name; // already textContent, safe
   document.getElementById('plan-muscle-label').textContent = plan.muscles.join(' · ');
   renderPlanExercises();
   showScreen('plan');
@@ -1299,7 +1316,7 @@ function renderPlanExercises() {
         </div>
         <div class="ex-num">${i + 1}</div>
         <div class="ex-info">
-          <div class="ex-name">${ex.name}</div>
+          <div class="ex-name">${sanitize(ex.name)}</div>
           <div class="ex-detail">
             ${ex.sets} sets · ${ex.reps} reps
             ${ex.weight ? ` · ${ex.weight}kg` : ''}
@@ -1424,7 +1441,10 @@ async function handleSavePlan() {
       closeModal('modal-plan');
       renderHome();
     }
-  } catch (e) { toast('Erro ao salvar treino'); }
+  } catch (e) {
+    console.error('savePlan error:', e);
+    toast('❌ Erro ao salvar. Verifique sua conexão.');
+  }
   btn.disabled = false;
 }
 
@@ -1444,6 +1464,7 @@ async function handleSaveExercise() {
 
   const btn = document.getElementById('save-ex-btn');
   btn.disabled = true;
+  btn.textContent = 'Salvando...';
   try {
     await createExercise(currentPlanId, {
       name,
@@ -1453,9 +1474,13 @@ async function handleSaveExercise() {
     });
     closeModal('modal-exercise');
     renderPlanExercises();
-    toast('Exercício adicionado!');
-  } catch (e) { toast('Erro ao adicionar exercício'); }
+    toast('Exercício adicionado! ✅');
+  } catch (e) {
+    console.error('saveExercise error:', e);
+    toast('❌ Erro ao salvar. Tabelas não encontradas no Supabase?');
+  }
   btn.disabled = false;
+  btn.textContent = 'Adicionar';
 }
 
 async function handleRemoveEx(exerciseId) {
