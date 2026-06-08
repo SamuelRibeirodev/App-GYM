@@ -504,6 +504,7 @@ async function loadExerciseProgress(name) {
 <script>
 let currentUser = null;
 let authMode = 'login';
+let appInitialized = false;
 
 async function initAuth() {
   try {
@@ -515,19 +516,29 @@ async function initAuth() {
     showAuthError('Erro ao conectar com o servidor. Verifique sua internet.');
   }
   supabase.auth.onAuthStateChange(async (event, session) => {
-    if (event === 'SIGNED_IN' && session?.user) { currentUser = session.user; await onAuthSuccess(); }
-    else if (event === 'SIGNED_OUT') { currentUser = null; plans = []; showAuthScreen(); }
+    // TOKEN_REFRESHED e INITIAL_SESSION não devem recarregar o app inteiro
+    if (event === 'SIGNED_IN' && session?.user) {
+      currentUser = session.user;
+      if (!appInitialized) { await onAuthSuccess(); }
+      // se já inicializado, ignora — é só refresh de token
+    } else if (event === 'SIGNED_OUT') {
+      currentUser = null;
+      plans = [];
+      appInitialized = false;
+      showAuthScreen();
+    }
   });
 }
 
 async function onAuthSuccess() {
+  appInitialized = true;
   document.getElementById('auth-screen').style.display = 'none';
   document.getElementById('loading-screen').style.display = 'flex';
   document.getElementById('app').style.display = 'none';
   try { await loadData(); } catch(e) { console.error('loadData error:', e); }
   document.getElementById('loading-screen').style.display = 'none';
   document.getElementById('app').style.display = 'flex';
-  // Restore active workout if one was in progress
+  // Restaurar treino ativo se havia um em andamento
   const hadWorkout = restoreWorkout();
   if (hadWorkout) {
     renderWorkout();
