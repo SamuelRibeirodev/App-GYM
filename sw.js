@@ -1,7 +1,7 @@
 // Service Worker — Meus Treinos
 // Versão: cache de shell estático, rede para dados Supabase
 const CACHE_NAME = 'meus-treinos-v1';
-const SHELL = ['/', '/index.html', '/manifest.json', '/icon.png'];
+const SHELL = ['/', '/index.html', '/manifest.json', '/icon.png', '/icon-192.png', '/icon-512.png'];
 
 self.addEventListener('install', e => {
   e.waitUntil(
